@@ -3,6 +3,7 @@ import numpy as np
 import os
 from matplotlib import pyplot as plt
 from scipy import ndimage
+import Queue
 
 class preProcess:
     def __init__(self, data_dir):
@@ -60,11 +61,95 @@ class preProcess:
         return staff_pixels
 
     def close_gaps(self,img):
-        kernel = np.ones((3,3),np.uint8)
+        kernel = np.ones((4,4),np.uint8)
         ref_img = cv2.erode(img,kernel)
-        kernel = np.ones((3,3),np.uint8)
+        kernel = np.ones((4,4),np.uint8)
         ref_img = cv2.dilate(ref_img,kernel)
         return ref_img
+
+    def find_connected_components(self, img):
+        height, width = img.shape
+        visited = np.zeros((height,width))
+        queue = Queue.Queue()
+        connected_components = []
+        flag = True
+        for i in xrange(height):
+            for j in xrange(width):
+                if visited[i][j] != 0: continue
+                if img[i][j] != 0: 
+                    visited[i][j] = 1
+                    continue
+                component = []
+                queue.put((i,j))
+                component.append((i,j))
+                while not queue.empty():
+                    row, col = queue.get()
+                    if row > 0 and col > 0 and visited[row-1][col-1] == 0 and img[row-1][col-1] == 0:
+                        queue.put((row-1,col-1))
+                        visited[row-1][col-1] = 1
+                        component.append((row-1,col-1))
+                    if row > 0 and visited[row-1][col] == 0 and img[row-1][col] == 0:
+                        queue.put((row-1,col))
+                        visited[row-1][col] = 1
+                        component.append((row-1,col))
+                    if row > 0 and col < (width-1) and visited[row-1][col+1] == 0 and img[row-1][col+1] == 0:
+                        queue.put((row-1,col+1))
+                        visited[row-1][col+1] = 1
+                        component.append((row-1,col+1))
+                    if col > 0 and visited[row][col-1] == 0 and img[row][col-1] == 0:
+                        queue.put((row,col-1))
+                        visited[row][col-1] = 1
+                        component.append((row,col-1))
+                    if col < (width-1) and visited[row][col+1] == 0 and img[row][col+1] == 0:
+                        queue.put((row,col+1))
+                        visited[row][col+1] = 1
+                        component.append((row,col+1))
+                    if row < (height-1) and col > 0 and visited[row+1][col-1] == 0 and img[row+1][col-1] == 0:
+                        queue.put((row+1,col-1))
+                        visited[row+1][col-1] = 1
+                        component.append((row+1,col-1))
+                    if row < (height-1) and visited[row+1][col] == 0 and img[row+1][col] == 0:
+                        queue.put((row+1,col))
+                        visited[row+1][col] = 1
+                        component.append((row+1,col))
+                    if row < (height-1) and col < (width-1) and visited[row+1][col+1] == 0 and img[row+1][col+1] == 0:
+                        queue.put((row+1,col+1))
+                        visited[row+1][col+1] = 1
+                        component.append((row+1,col+1))
+                row_index = map(lambda x:x[0],component)
+                col_index = map(lambda x:x[1],component)
+                top = min(row_index)
+                bottom = max(row_index)
+                left = min(col_index)
+                right = max(col_index)
+                connected_components.append((top,left,bottom,right))
+
+        return connected_components
+
+    def mark_components(self, img):
+        connected_components = self.find_connected_components(img)
+        draw_img = cv2.cvtColor(img,cv2.COLOR_GRAY2BGR)
+        for component in connected_components:
+            top, left, bottom, right = component
+            cv2.rectangle(draw_img,(left,top),(right,bottom),(0,255,0),3)
+        cv2.imwrite(self.data_dir + "components.png",draw_img)
+            
+    def detect_segments(self, img):
+        img = 255 - img
+        labels, numLabels = ndimage.label(img)
+        fragments = ndimage.find_objects(labels)
+        draw_img = cv2.cvtColor(img,cv2.COLOR_GRAY2BGR)
+        flag = True
+        for slices in fragments:
+            top = slices[0].start
+            bottom = slices[0].stop
+            left = slices[1].start
+            right = slices[1].stop
+            cv2.rectangle(draw_img,(left,top),(right,bottom),(0,255,0),3)
+            if flag:
+                print img[top:bottom,left:right]
+                flag = False
+        cv2.imwrite(self.data_dir + "components.png",draw_img)
 
     def run(self, fname):
         img = self.open_file(fname)
@@ -72,6 +157,9 @@ class preProcess:
         staff_pixels = self.detect_staff_pixels(img)
         self.remove_staff_lines(staff_pixels, img)
         img = self.close_gaps(img)
+        seg_line = (self.staff_lines[9] + self.staff_lines[10])/2
+        img = img[0:seg_line,:]
+        self.mark_components(img)
         cv2.imwrite(self.data_dir + "staff_removed.png",img)
 
 if __name__=="__main__":
