@@ -6,8 +6,9 @@ from scipy import ndimage
 import Queue
 
 class preProcess:
-    def __init__(self, data_dir):
+    def __init__(self, data_dir, template_list):
         self.data_dir = data_dir
+        self.template_list = template_list
 
     def open_file(self, fname):
         if not os.path.exists(self.data_dir + fname):
@@ -61,9 +62,9 @@ class preProcess:
         return staff_pixels
 
     def close_gaps(self,img):
-        kernel = np.ones((4,4),np.uint8)
+        kernel = np.ones((3,3),np.uint8)
         ref_img = cv2.erode(img,kernel)
-        kernel = np.ones((4,4),np.uint8)
+        kernel = np.ones((3,3),np.uint8)
         ref_img = cv2.dilate(ref_img,kernel)
         return ref_img
 
@@ -126,30 +127,55 @@ class preProcess:
 
         return connected_components
 
-    def mark_components(self, img):
-        connected_components = self.find_connected_components(img)
+    def mark_components(self, img, draw=True):
+        self.components = self.find_connected_components(img)
+        if draw:
+            draw_img = cv2.cvtColor(img,cv2.COLOR_GRAY2BGR)
+            for component in self.components:
+                top, left, bottom, right = component
+                cv2.rectangle(draw_img,(left,top),(right,bottom),(0,255,0),3)
+            cv2.imwrite(self.data_dir + "components.png",draw_img)
+
+    def mark_lines(self, img):
         draw_img = cv2.cvtColor(img,cv2.COLOR_GRAY2BGR)
-        for component in connected_components:
+        for component in self.components:
             top, left, bottom, right = component
-            cv2.rectangle(draw_img,(left,top),(right,bottom),(0,255,0),3)
-        cv2.imwrite(self.data_dir + "components.png",draw_img)
-            
-    def detect_segments(self, img):
-        img = 255 - img
-        labels, numLabels = ndimage.label(img)
-        fragments = ndimage.find_objects(labels)
+            area = (bottom-top)*(right-left)
+            if area <= 1: continue
+            comp_img = img[top:bottom,left:right]
+            for j in xrange(right-left):
+                nnz = np.count_nonzero(comp_img[:,j])
+                if float(nnz)/(bottom-top) < 0.4:
+                    zero_indices = np.where(comp_img[:,j]==0)[0]
+                    start_index = top + zero_indices[0]
+                    last_index = top + zero_indices[zero_indices.shape[0]-1]
+                    draw_img[start_index:last_index,left+j,:] = (0,0,255)
+        return draw_img
+
+    def match_template(self, img):
         draw_img = cv2.cvtColor(img,cv2.COLOR_GRAY2BGR)
-        flag = True
-        for slices in fragments:
-            top = slices[0].start
-            bottom = slices[0].stop
-            left = slices[1].start
-            right = slices[1].stop
-            cv2.rectangle(draw_img,(left,top),(right,bottom),(0,255,0),3)
-            if flag:
-                print img[top:bottom,left:right]
-                flag = False
-        cv2.imwrite(self.data_dir + "components.png",draw_img)
+        for template_name in self.template_list:
+            template = cv2.imread(template_name,0)
+            height, width = template.shape
+            ratio = float(self.diff)/height
+            template = cv2.resize(template, None, fx=ratio, fy=ratio, interpolation = cv2.INTER_CUBIC)
+            print template.shape
+            template = self.binarize_file(template)
+            template = 255 - template
+            w, h = template.shape[::-1]
+            res = cv2.matchTemplate(img,template,cv2.TM_CCOEFF_NORMED)
+            threshold = 0.55
+            loc = np.where( res >= threshold)
+            for pt in zip(*loc[::-1]):
+                cv2.rectangle(draw_img, pt, (pt[0] + w, pt[1] + h), (0,0,255), 2)
+        cv2.imwrite(self.data_dir + "templates.png",draw_img)
+
+    def remove_horizontal_lines(self, img):
+        height, width = img.shape
+        for j in xrange(width):
+            num_zero = height - np.count_nonzero(img[:,j])
+            if num_zero > height/2: 
+                img[:,j] = 255
 
     def run(self, fname):
         img = self.open_file(fname)
@@ -157,14 +183,18 @@ class preProcess:
         staff_pixels = self.detect_staff_pixels(img)
         self.remove_staff_lines(staff_pixels, img)
         img = self.close_gaps(img)
+        cv2.imwrite(self.data_dir + "staff_removed.png",img)
         seg_line = (self.staff_lines[9] + self.staff_lines[10])/2
         img = img[0:seg_line,:]
+        self.remove_horizontal_lines(img)
         self.mark_components(img)
-        cv2.imwrite(self.data_dir + "staff_removed.png",img)
+        self.match_template(img)    
 
 if __name__=="__main__":
     data_dir = "/Users/ambermadvariya/data/omr_cv/"
     fname = "sample.png"
-    pre_inst = preProcess(data_dir)
+    templates_dir = data_dir + "templates/"
+    template_list = map(lambda x: templates_dir + x + ".png",["whole_note","quarter_note","half_note"])
+    pre_inst = preProcess(data_dir, template_list)
     pre_inst.run(fname)
     
