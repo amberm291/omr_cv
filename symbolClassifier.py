@@ -9,7 +9,10 @@ from sklearn import svm
 import pickle
 from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import StratifiedKFold
+from sklearn.ensemble import RandomForestClassifier
 # import ipdb
+
+# def remove_sparse_classes(training_data):
 
 
 def train_SVC(csv_file="training.csv", cross_val=False):
@@ -38,8 +41,8 @@ def train_RF(csv_file="training.csv", cross_val=False):
 	data_x = training_data.drop(['labels'],axis=1)
 	data_y = training_data['labels']
 	rf_clf = RandomForestClassifier(
-		n_estimators=10,
-		max_depth=5, 
+		n_estimators=100,
+		max_depth=10, 
 		random_state=0)
 	if cross_val:
 		print("Running stratified 5-fold cross validation...")
