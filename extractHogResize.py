@@ -10,8 +10,6 @@ import cv2
 import pandas as pd
 
 import sklearn
-
-from sklearn.neighbors import KNeighborsClassifier
 from pandas import read_csv
 import os
 from sklearn import svm
@@ -22,17 +20,8 @@ from PIL import Image
 
 # oldDir  = os.getcwd()
 
-def resize_img(folder):
-    files = os.listdir(folder)
-    for theFile in files:
-        img = Image.open(folder +'/'+ theFile)
-        img = img.resize((100, 100), Image.ANTIALIAS)
-        img.save(folder+'/'+theFile)
-
-def extract_hog(folder):
-    resize_img(folder)
-    
-    hogFeatures = [[]]
+def extract_hog(im):
+    img = np.array(Image.fromarray(im).resize((100, 100), Image.ANTIALIAS))
     theWinSize = (100,100)
     blockSize = (10,10)
     blockStride = (5,5)
@@ -46,14 +35,9 @@ def extract_hog(folder):
     nLevels = 25
 
     theHOG = cv2.HOGDescriptor(theWinSize, blockSize, blockStride, cellSize, nBins, derivAperture, winSigma, histogramNormType, L2HysThreshold, gammaCorrection, nLevels)
-    files = os.listdir(folder)
-    for theFile in files:
-        im = cv2.imread(folder +'/'+ theFile, 0)
-        tempHOG = theHOG.compute(im)
-        (nfeat,xx) = tempHOG.shape
-        tempHOG = np.reshape(tempHOG,[1,nfeat])[0]
-        hogFeatures.append(tempHOG)
-    hogFeatures.remove([])
-    hogFeatures = np.array(hogFeatures)
-    featureDF = pd.DataFrame(data=hogFeatures)
-    featureDF.to_csv('testing.csv')
+    tempHOG = theHOG.compute(img)
+    (nfeat,xx) = tempHOG.shape
+    HOG_feat = np.reshape(tempHOG,[1,nfeat])[0]
+    return HOG_feat
+    # featureDF = pd.DataFrame(data=hogFeatures)
+    # featureDF.to_csv('testing.csv')
