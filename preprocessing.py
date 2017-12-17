@@ -4,6 +4,8 @@ import os
 from matplotlib import pyplot as plt
 from scipy import ndimage
 import Queue
+from operator import itemgetter
+import math
 
 class preProcess:
     def __init__(self, data_dir, template_list):
@@ -154,28 +156,52 @@ class preProcess:
 
     def match_template(self, img):
         draw_img = cv2.cvtColor(img,cv2.COLOR_GRAY2BGR)
+        dedup_mat = np.zeros(img.shape,dtype=np.uint8)
+        matches = []
         for template_name in self.template_list:
             template = cv2.imread(template_name,0)
             height, width = template.shape
             ratio = float(self.diff)/height
             template = cv2.resize(template, None, fx=ratio, fy=ratio, interpolation = cv2.INTER_CUBIC)
-            print template.shape
             template = self.binarize_file(template)
             template = 255 - template
             w, h = template.shape[::-1]
             res = cv2.matchTemplate(img,template,cv2.TM_CCOEFF_NORMED)
+            window_size = int(math.floor(float(self.diff)/4))
             threshold = 0.55
             loc = np.where( res >= threshold)
-            for pt in zip(*loc[::-1]):
-                cv2.rectangle(draw_img, pt, (pt[0] + w, pt[1] + h), (0,0,255), 2)
+            points = zip(*loc[::-1])
+            points = sorted(points,key=lambda x:itemgetter(1,0))
+            for pt in points:
+                col, row = pt
+                if (row-window_size)>=0 and (col-window_size)>=0 and (row+window_size)<img.shape[0] and (col+window_size)<img.shape[1]:
+                    if np.sum(dedup_mat[row-window_size:row+window_size,col-window_size:col+window_size]) != 0:
+                        dedup_mat[row,col] = 1
+                        continue
+                dedup_mat[row,col] = 1
+                counter += 1
+                matches.append((row+h/2,col+w/2))
+                cv2.rectangle(draw_img, pt, (col + w, row + h), (0,0,255), 1)
+        print len(matches)
         cv2.imwrite(self.data_dir + "templates.png",draw_img)
+        matches = sorted(matches,key=itemgetter(1,0))
+        return matches
 
-    def remove_horizontal_lines(self, img):
+    def remove_vertical_lines(self, img):
         height, width = img.shape
         for j in xrange(width):
             num_zero = height - np.count_nonzero(img[:,j])
             if num_zero > height/2: 
                 img[:,j] = 255
+
+    def parse_components(self, img, components, staff_lines):
+        treble_letter_notes = []
+        bass_letter_notes = []
+        for comp in components:
+            top, left, bottom, right = comp
+            matches = self.match_template(img[top:bottom,left:right])
+            if len(matches) == 0: continue
+            matches = map(lambda x:(x[0]+top,x[1]+left),matches)
 
     def run(self, fname):
         img = self.open_file(fname)
@@ -184,11 +210,21 @@ class preProcess:
         self.remove_staff_lines(staff_pixels, img)
         img = self.close_gaps(img)
         cv2.imwrite(self.data_dir + "staff_removed.png",img)
-        seg_line = (self.staff_lines[9] + self.staff_lines[10])/2
-        img = img[0:seg_line,:]
-        self.remove_horizontal_lines(img)
-        self.mark_components(img)
-        self.match_template(img)    
+        prev_seg_line = 0
+        for i in xrange(len(self.staff_lines)/10):
+            print i
+            if 10*(i+1) >= len(self.staff_lines):
+                seg_line = img.shape[0] - 1
+            else:
+                seg_line = (self.staff_lines[10*i+9] + self.staff_lines[10*(i+1)])/2
+            ref_img = img[prev_seg_line:seg_line,:]
+            self.remove_vertical_lines(ref_img)
+            self.components = self.find_connected_components(ref_img)
+            self.components = sorted(self.components,key=itemgetter(1,0))
+            print self.components
+            #self.mark_components(img)
+            #self.match_template(img)    
+            #prev_seg_line = seg_line
 
 if __name__=="__main__":
     data_dir = "/Users/ambermadvariya/data/omr_cv/"
