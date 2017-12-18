@@ -11,7 +11,6 @@ import pandas as pd
 
 import sklearn
 from pandas import read_csv
-import os
 from sklearn import svm
 import pickle
 from PIL import Image
